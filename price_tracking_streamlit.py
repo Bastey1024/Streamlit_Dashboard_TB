@@ -3,7 +3,6 @@ import pandas as pd
 from pyairtable import Api
 from datetime import datetime, timedelta
 import plotly.graph_objects as go
-import pytz
 
 # Airtable Konfiguration
 AIRTABLE_API_KEY = 'pat6k3Xcf9cw1svUE.047ecff2db78aaf279e45197e3f7b8bbc2f1694b6fd950e5798ea5ea3e0747f5'
@@ -30,13 +29,11 @@ class AirtableManager:
             for record in records:
                 fields = record['fields']
                 try:
-                    # Extrahiere Datum und Zeit
-                    date = fields.get('Date', '')
-                    if isinstance(date, str):
-                        # Behandle das Datum als naive datetime und konvertiere dann zu UTC
-                        date_obj = pd.to_datetime(date.split('.')[0])  # Entferne Millisekunden falls vorhanden
-                        if date_obj.tz is None:  # Nur lokalisieren wenn keine Zeitzone vorhanden
-                            date_obj = date_obj.tz_localize('UTC')
+                    # Extrahiere das Datum als naive datetime
+                    date_str = fields.get('Date', '')
+                    if isinstance(date_str, str):
+                        # Konvertiere String zu datetime ohne Zeitzone
+                        date_obj = pd.to_datetime(date_str).tz_localize(None)
                     else:
                         continue
                         
@@ -53,25 +50,17 @@ class AirtableManager:
             df = pd.DataFrame(data)
             if not df.empty:
                 df.sort_values('date', inplace=True)
-                
-                # Debug-Info
-                st.write("Datum Beispiel:", df['date'].iloc[0])
-                st.write("Zeitzone:", df['date'].dt.tz)
-                
             return df
             
         except Exception as e:
             st.error(f"Fehler beim Laden der Preis-Daten: {str(e)}")
             return pd.DataFrame()
     
-    def submit_feedback(self, notes, status="Neu"):
+    def submit_feedback(self, notes):
         """Sendet Feedback an die Feedback-Tabelle"""
         try:
-            current_time = datetime.now(pytz.UTC).isoformat()
             self.feedback_table.create({
-                'Date': current_time,
-                'Notes': notes,
-                'Status': status
+                'Notes': notes
             })
             return True
         except Exception as e:
@@ -99,8 +88,8 @@ def main():
         with col1:
             hours = st.slider('Letzte Stunden anzeigen:', 1, 24, 4)
         
-        # Filtere Daten nach ausgewähltem Zeitraum
-        start_date = pd.Timestamp.now(tz='UTC') - pd.Timedelta(hours=hours)
+        # Filtere Daten nach ausgewähltem Zeitraum - ohne Zeitzone
+        start_date = (datetime.now() - timedelta(hours=hours)).replace(tzinfo=None)
         filtered_df = df[df['date'] >= start_date].copy()
         
         if filtered_df.empty:
@@ -162,6 +151,15 @@ def main():
         
         st.plotly_chart(fig, use_container_width=True)
         
+        # Debug Info
+        if st.checkbox("Debug Info"):
+            st.write("Datums-Format Debug:")
+            st.write("Aktuelles Datum:", datetime.now())
+            st.write("Start Filter:", start_date)
+            if not filtered_df.empty:
+                st.write("Erster Datenpunkt:", filtered_df['date'].iloc[0])
+                st.write("Letzter Datenpunkt:", filtered_df['date'].iloc[-1])
+        
         # Feedback-Sektion
         st.markdown("---")
         st.header("📝 Feedback")
@@ -181,15 +179,8 @@ def main():
                 else:
                     st.error("Entschuldigung, beim Senden des Feedbacks ist ein Fehler aufgetreten.")
 
-        # Debug Info
-        if st.checkbox("Debug Info anzeigen"):
-            st.write("Daten-Info:")
-            st.write("Anzahl Datenpunkte:", len(df))
-            st.write("Zeitraum:", df['date'].min(), "bis", df['date'].max())
-
     except Exception as e:
         st.error(f"Ein Fehler ist aufgetreten: {str(e)}")
-        st.error("Details zum Debugging wurden in die Konsole geschrieben.")
         print(f"Detailed error: {str(e)}")
 
 if __name__ == "__main__":
